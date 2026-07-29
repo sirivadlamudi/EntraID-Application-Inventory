@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Entra ID Application Inventory</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+  :root {
+    --paper:#F4F7FB; --card:#FFFFFF; --ink:#0E2240; --muted:#5A6B84;
+    --line:#DCE4EF; --tufts:#3172AE; --deep:#002E6D;
+    --warn-bg:#FBF1DD; --warn:#8A5A10;
+    --bad-bg:#FBE5E2;  --bad:#A2372B;
+    --ok-bg:#E2F1E9;   --ok:#25634A;
+    --dim-bg:#EAEEF4;  --dim:#5A6B84;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--paper); color:var(--ink);
+    font:14px/1.5 "Avenir Next","Segoe UI",-apple-system,"Helvetica Neue",sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
+  header {
+    background:linear-gradient(100deg,var(--deep),var(--tufts));
+    color:#fff; padding:24px 36px 20px;
+  }
+  header h1 { margin:0; font-size:20px; font-weight:600; }
+  header .sub { margin-top:4px; font-size:13px; opacity:.8; }
+  main { max-width:1320px; margin:0 auto; padding:24px 36px 60px; }
+
+  /* upload screen */
+  #uploadScreen {
+    background:var(--card); border:1.5px dashed var(--line); border-radius:12px;
+    padding:60px 24px; text-align:center; margin-top:8px;
+  }
+  #uploadScreen.drag { border-color:var(--tufts); background:#F0F6FC; }
+  #uploadScreen h2 { margin:0 0 8px; font-size:16px; }
+  #uploadScreen p { color:var(--muted); margin:0 0 18px; font-size:13px; }
+  #fileInput { display:none; }
+  .btn {
+    display:inline-block; background:var(--tufts); color:#fff; border:none;
+    padding:10px 20px; border-radius:8px; font-size:13px; font-weight:600;
+    cursor:pointer;
+  }
+  .btn:hover { background:var(--deep); }
+  .btn-ghost {
+    background:none; border:1px solid var(--line); color:var(--muted);
+    padding:7px 14px; border-radius:8px; font-size:12.5px; cursor:pointer;
+  }
+  .btn-ghost:hover { border-color:var(--tufts); color:var(--tufts); }
+
+  #dashboard { display:none; }
+
+  .toprow { display:flex; align-items:center; gap:12px; margin-bottom:18px; }
+  .toprow .fileinfo { font-size:12.5px; color:var(--muted); }
+
+  .cards { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:20px; }
+  .card {
+    background:var(--card); border:1px solid var(--line); border-radius:10px;
+    padding:14px 18px; min-width:150px; cursor:pointer; user-select:none;
+  }
+  .card:hover { box-shadow:0 2px 8px rgba(14,34,64,.08); }
+  .card.active { border-color:var(--tufts); box-shadow:0 0 0 2px rgba(49,114,174,.25); }
+  .card .num { font-size:24px; font-weight:600; }
+  .card .lbl { font-size:12px; color:var(--muted); margin-top:2px; }
+  .card.warn .num { color:var(--warn); }
+  .card.bad  .num { color:var(--bad); }
+  .card.dim  .num { color:var(--dim); }
+
+  .controls { display:flex; gap:12px; align-items:center; margin-bottom:14px; flex-wrap:wrap; }
+  .controls input[type=search] {
+    flex:1; min-width:240px; padding:9px 14px; font-size:14px;
+    border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--ink);
+  }
+  .controls select {
+    padding:9px 10px; border:1px solid var(--line); border-radius:8px;
+    background:var(--card); color:var(--ink); font-size:13px;
+  }
+  .count { font-size:13px; color:var(--muted); margin-left:auto; }
+
+  .tablewrap { background:var(--card); border:1px solid var(--line); border-radius:10px; overflow:auto; max-height:70vh; }
+  table { border-collapse:collapse; width:100%; font-size:12.5px; }
+  th, td { padding:8px 11px; text-align:left; white-space:nowrap; }
+  th {
+    position:sticky; top:0; background:var(--card); color:var(--muted);
+    font-size:10.5px; text-transform:uppercase; letter-spacing:.5px;
+    border-bottom:2px solid var(--line); cursor:pointer; user-select:none;
+  }
+  th:hover { color:var(--tufts); }
+  td { border-bottom:1px solid var(--line); }
+  tr:hover td { background:#F7FAFD; }
+  td.name { font-weight:600; white-space:normal; min-width:170px; }
+  td.appid { color:var(--muted); font-size:10.5px; font-family:ui-monospace,Consolas,monospace; }
+
+  .pill { display:inline-block; padding:2px 9px; border-radius:20px; font-size:10.5px; font-weight:600; }
+  .pill.warn { background:var(--warn-bg); color:var(--warn); }
+  .pill.bad  { background:var(--bad-bg);  color:var(--bad); }
+  .pill.ok   { background:var(--ok-bg);   color:var(--ok); }
+  .pill.dim  { background:var(--dim-bg);  color:var(--dim); }
+
+  .empty { padding:40px; text-align:center; color:var(--muted); }
+  footer { margin-top:16px; font-size:11.5px; color:var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Entra ID Application Inventory</h1>
+  <div class="sub">Load the latest AppInventory.csv to explore — nothing is uploaded anywhere, it stays in your browser</div>
+</header>
+<main>
+
+  <div id="uploadScreen">
+    <h2>Load your inventory CSV</h2>
+    <p>Drag and drop AppInventory.csv here, or click to choose the file</p>
+    <button class="btn" onclick="document.getElementById('fileInput').click()">Choose CSV file</button>
+    <input type="file" id="fileInput" accept=".csv">
+  </div>
+
+  <div id="dashboard">
+    <div class="toprow">
+      <span class="fileinfo" id="fileInfo"></span>
+      <button class="btn-ghost" onclick="resetUpload()">Load a different file</button>
+    </div>
+    <div class="cards" id="cards"></div>
+    <div class="controls">
+      <input type="search" id="q" placeholder="Search by name or App ID…" aria-label="Search applications">
+      <select id="cat"><option value="">All categories</option></select>
+      <select id="proto"><option value="">All protocols</option></select>
+      <span class="count" id="count"></span>
+    </div>
+    <div class="tablewrap"><table id="tbl"><thead></thead><tbody></tbody></table></div>
+    <footer>Flags: credential expiring &le;60 days · no owner listed (excludes Copilot Studio agents, which auto-populate an owner) · restricted with zero assigned users/groups · disabled. Blank protocol often means a consumer OAuth consent grant rather than a broken integration.</footer>
+  </div>
+
+</main>
+<script>
+let DATA = [];
+
+const cols = [
+  {k:"DisplayName", l:"Application", cls:"name"},
+  {k:"Category", l:"Category"},
+  {k:"Protocol", l:"Protocol"},
+  {k:"Enabled", l:"Enabled", pill:v => v==="True" ? ["ok","Yes"] : ["bad","Disabled"]},
+  {k:"AccessRestricted", l:"Restricted", pill:v => v==="True" ? ["ok","Yes"] : ["dim","Open"]},
+  {k:"Owners", l:"Owners"},
+  {k:"AssignedUsers", l:"Users", num:true},
+  {k:"AssignedGroups", l:"Groups"},
+  {k:"DaysToExpiry", l:"Cred expires (days)", num:true,
+    pill:v => v===""||v==null ? null : (+v < 0 ? ["bad", v+" (expired)"] : (+v <= 60 ? ["warn",v] : ["ok",v]))},
+  {k:"AppId", l:"App ID", cls:"appid"},
+];
+
+let state = { q:"", cat:"", proto:"", flag:null, sortK:"DisplayName", sortDir:1 };
+
+const cardsDef = [
+  {id:null, label:"Total apps", test:_=>true, cls:""},
+  {id:"cred", label:"Cred expiring \u226460d", test:isCredExpiring, cls:"warn"},
+  {id:"noowner", label:"No owner (excl. Copilot)", test:isNoOwner, cls:"bad"},
+  {id:"unreachable", label:"Restricted, no assignments", test:isUnreachable, cls:"bad"},
+  {id:"disabled", label:"Disabled", test:r=>r.Enabled==="False", cls:"dim"},
+];
+
+function isCredExpiring(r){ const d = +r.DaysToExpiry; return r.DaysToExpiry!=="" && !isNaN(d) && d<=60; }
+function isNoOwner(r){ return (!r.Owners || r.Owners.trim()==="") && !(r.DisplayName||"").includes("Copilot Studio"); }
+function isUnreachable(r){ return r.AccessRestricted==="True" && (+r.AssignedUsers||0)===0 && (!r.AssignedGroups || r.AssignedGroups.trim()==="");}
+
+function uniq(k){ return [...new Set(DATA.map(r=>r[k]).filter(v=>v && v.trim()))].sort(); }
+
+function setupFile(file){
+  Papa.parse(file, {
+    header:true,
+    skipEmptyLines:true,
+    complete: function(results){
+      DATA = results.data;
+      document.getElementById("uploadScreen").style.display = "none";
+      document.getElementById("dashboard").style.display = "block";
+      document.getElementById("fileInfo").textContent = file.name + " · " + DATA.length + " apps loaded";
+      init();
+    }
+  });
+}
+
+function resetUpload(){
+  document.getElementById("uploadScreen").style.display = "block";
+  document.getElementById("dashboard").style.display = "none";
+  document.getElementById("fileInput").value = "";
+}
+
+document.getElementById("fileInput").addEventListener("change", e=>{
+  if (e.target.files[0]) setupFile(e.target.files[0]);
+});
+const dropzone = document.getElementById("uploadScreen");
+dropzone.addEventListener("dragover", e=>{ e.preventDefault(); dropzone.classList.add("drag"); });
+dropzone.addEventListener("dragleave", ()=> dropzone.classList.remove("drag"));
+dropzone.addEventListener("drop", e=>{
+  e.preventDefault(); dropzone.classList.remove("drag");
+  if (e.dataTransfer.files[0]) setupFile(e.dataTransfer.files[0]);
+});
+
+function init(){
+  const catSel = document.getElementById("cat"), protoSel = document.getElementById("proto");
+  catSel.innerHTML = "<option value=''>All categories</option>";
+  protoSel.innerHTML = "<option value=''>All protocols</option>";
+  uniq("Category").forEach(v => catSel.add(new Option(v,v)));
+  uniq("Protocol").forEach(v => protoSel.add(new Option(v,v)));
+  document.getElementById("q").addEventListener("input", e=>{state.q=e.target.value.toLowerCase(); render();});
+  catSel.addEventListener("change", e=>{state.cat=e.target.value; render();});
+  protoSel.addEventListener("change", e=>{state.proto=e.target.value; render();});
+  render();
+}
+
+function filtered(){
+  return DATA.filter(r=>{
+    if (state.q && !((r.DisplayName||"").toLowerCase().includes(state.q) || (r.AppId||"").toLowerCase().includes(state.q))) return false;
+    if (state.cat && r.Category !== state.cat) return false;
+    if (state.proto && r.Protocol !== state.proto) return false;
+    if (state.flag){
+      const def = cardsDef.find(c=>c.id===state.flag);
+      if (def && !def.test(r)) return false;
+    }
+    return true;
+  }).sort((a,b)=>{
+    const col = cols.find(c=>c.k===state.sortK) || {};
+    let x=a[state.sortK], y=b[state.sortK];
+    if (x==null) x=""; if (y==null) y="";
+    if (col.num){ x=+x||0; y=+y||0; } else { x=(""+x).toLowerCase(); y=(""+y).toLowerCase(); }
+    return (x<y?-1:x>y?1:0)*state.sortDir;
+  });
+}
+
+function render(){
+  const cardsEl = document.getElementById("cards"); cardsEl.innerHTML="";
+  cardsDef.forEach(c=>{
+    const n = DATA.filter(c.test).length;
+    const d = document.createElement("div");
+    d.className = "card "+c.cls+(state.flag===c.id?" active":"");
+    d.setAttribute("role","button"); d.tabIndex=0;
+    d.innerHTML = '<div class="num">'+n+'</div><div class="lbl">'+c.label+'</div>';
+    const toggle = ()=>{ state.flag = (state.flag===c.id? null : c.id); render(); };
+    d.addEventListener("click", toggle);
+    d.addEventListener("keydown", e=>{ if(e.key==="Enter"||e.key===" "){e.preventDefault();toggle();} });
+    cardsEl.appendChild(d);
+  });
+
+  const thead = document.querySelector("#tbl thead");
+  thead.innerHTML = "<tr>"+cols.map(c=>{
+    const arrow = state.sortK===c.k ? '<span style="font-size:9px;margin-left:3px">'+(state.sortDir>0?"\u25B2":"\u25BC")+"</span>" : "";
+    return "<th data-k='"+c.k+"'>"+c.l+arrow+"</th>";
+  }).join("")+"</tr>";
+  thead.querySelectorAll("th").forEach(th=>th.addEventListener("click",()=>{
+    const k = th.dataset.k;
+    if (state.sortK===k) state.sortDir*=-1; else { state.sortK=k; state.sortDir=1; }
+    render();
+  }));
+
+  const rows = filtered();
+  const tbody = document.querySelector("#tbl tbody");
+  tbody.innerHTML = rows.map(r => "<tr>"+cols.map(c=>{
+    const v = r[c.k];
+    if (c.pill){
+      const p = c.pill(v);
+      return "<td>"+(p ? '<span class="pill '+p[0]+'">'+p[1]+"</span>" : "<span style='color:var(--muted)'>–</span>")+"</td>";
+    }
+    return "<td class='"+(c.cls||"")+"'>"+(v==null||v===""?"<span style='color:var(--muted)'>–</span>":String(v))+"</td>";
+  }).join("")+"</tr>").join("");
+  if (!rows.length) tbody.innerHTML = "<tr><td colspan='"+cols.length+"'><div class='empty'>No applications match. Clear a filter to widen the view.</div></td></tr>";
+  document.getElementById("count").textContent = rows.length + " of " + DATA.length + " shown";
+}
+</script>
+</body>
+</html>
