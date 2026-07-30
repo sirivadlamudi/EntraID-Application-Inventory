@@ -28,7 +28,6 @@
   header .sub { margin-top:4px; font-size:13px; opacity:.8; }
   main { max-width:1320px; margin:0 auto; padding:24px 36px 60px; }
 
-  /* upload screen */
   #uploadScreen {
     background:var(--card); border:1.5px dashed var(--line); border-radius:12px;
     padding:60px 24px; text-align:center; margin-top:8px;
@@ -129,7 +128,7 @@
       <span class="count" id="count"></span>
     </div>
     <div class="tablewrap"><table id="tbl"><thead></thead><tbody></tbody></table></div>
-    <footer>Flags: credential expiring &le;60 days · no owner listed (excludes Copilot Studio agents, which auto-populate an owner) · restricted with zero assigned users/groups · disabled. Blank protocol often means a consumer OAuth consent grant rather than a broken integration.</footer>
+    <footer>Flags: credential expiring &le;60 days · no owner listed (excludes Copilot Studio agents, which auto-populate an owner) · restricted with zero assigned users/groups · disabled · no sign-ins in the last 7 days. Blank protocol often means a consumer OAuth consent grant rather than a broken integration.</footer>
   </div>
 
 </main>
@@ -143,8 +142,12 @@ const cols = [
   {k:"Enabled", l:"Enabled", pill:v => v==="True" ? ["ok","Yes"] : ["bad","Disabled"]},
   {k:"AccessRestricted", l:"Restricted", pill:v => v==="True" ? ["ok","Yes"] : ["dim","Open"]},
   {k:"Owners", l:"Owners"},
-  {k:"AssignedUsers", l:"Users", num:true},
-  {k:"AssignedGroups", l:"Groups"},
+  {k:"AssignedUsers", l:"Assigned users", num:true},
+  {k:"AssignedGroups", l:"Assigned groups"},
+  {k:"SignIns", l:"Sign-ins (7d)", num:true,
+    pill:v => v===""||v==null ? null : (+v === 0 ? ["dim","0"] : ["ok",v])},
+  {k:"UniqueUsers", l:"Unique users (7d)", num:true},
+  {k:"LastSignIn", l:"Last sign-in"},
   {k:"DaysToExpiry", l:"Cred expires (days)", num:true,
     pill:v => v===""||v==null ? null : (+v < 0 ? ["bad", v+" (expired)"] : (+v <= 60 ? ["warn",v] : ["ok",v]))},
   {k:"AppId", l:"App ID", cls:"appid"},
@@ -156,12 +159,14 @@ const cardsDef = [
   {id:null, label:"Total apps", test:_=>true, cls:""},
   {id:"cred", label:"Cred expiring \u226460d", test:isCredExpiring, cls:"warn"},
   {id:"noowner", label:"No owner (excl. Copilot)", test:isNoOwner, cls:"bad"},
+  {id:"nousage", label:"No sign-ins (7d)", test:isNoUsage, cls:"bad"},
   {id:"unreachable", label:"Restricted, no assignments", test:isUnreachable, cls:"bad"},
   {id:"disabled", label:"Disabled", test:r=>r.Enabled==="False", cls:"dim"},
 ];
 
 function isCredExpiring(r){ const d = +r.DaysToExpiry; return r.DaysToExpiry!=="" && !isNaN(d) && d<=60; }
 function isNoOwner(r){ return (!r.Owners || r.Owners.trim()==="") && !(r.DisplayName||"").includes("Copilot Studio"); }
+function isNoUsage(r){ return r.SignIns==="0" || r.SignIns===0; }
 function isUnreachable(r){ return r.AccessRestricted==="True" && (+r.AssignedUsers||0)===0 && (!r.AssignedGroups || r.AssignedGroups.trim()==="");}
 
 function uniq(k){ return [...new Set(DATA.map(r=>r[k]).filter(v=>v && v.trim()))].sort(); }
