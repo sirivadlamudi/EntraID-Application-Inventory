@@ -56,25 +56,34 @@
   .cards { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:20px; }
   .card {
     background:var(--card); border:1px solid var(--line); border-radius:10px;
-    padding:14px 18px; min-width:150px; cursor:pointer; user-select:none;
+    padding:14px 18px; min-width:160px; cursor:pointer; user-select:none;
   }
   .card:hover { box-shadow:0 2px 8px rgba(14,34,64,.08); }
   .card.active { border-color:var(--tufts); box-shadow:0 0 0 2px rgba(49,114,174,.25); }
   .card .num { font-size:24px; font-weight:600; }
-  .card .lbl { font-size:12px; color:var(--muted); margin-top:2px; }
+  .card .lbl { font-size:12px; color:var(--muted); margin-top:2px; font-weight:600; }
+  .card .sub { font-size:10.5px; color:var(--muted); margin-top:1px; }
   .card.warn .num { color:var(--warn); }
   .card.bad  .num { color:var(--bad); }
   .card.dim  .num { color:var(--dim); }
+  .card.info .num { color:var(--tufts); }
 
-  .controls { display:flex; gap:12px; align-items:center; margin-bottom:14px; flex-wrap:wrap; }
+  .controls { display:flex; gap:10px; align-items:center; margin-bottom:14px; flex-wrap:wrap; }
   .controls input[type=search] {
-    flex:1; min-width:240px; padding:9px 14px; font-size:14px;
+    flex:1; min-width:220px; padding:9px 14px; font-size:14px;
     border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--ink);
   }
   .controls select {
     padding:9px 10px; border:1px solid var(--line); border-radius:8px;
     background:var(--card); color:var(--ink); font-size:13px;
   }
+  .proto-group { display:flex; align-items:center; gap:4px; background:var(--card); border:1px solid var(--line); border-radius:8px; padding:4px; }
+  .proto-chip {
+    padding:5px 11px; border-radius:6px; font-size:12px; font-weight:600;
+    cursor:pointer; user-select:none; color:var(--muted); letter-spacing:.3px;
+  }
+  .proto-chip:hover { background:var(--paper); }
+  .proto-chip.on { background:var(--tufts); color:#fff; }
   .count { font-size:13px; color:var(--muted); margin-left:auto; }
 
   .tablewrap { background:var(--card); border:1px solid var(--line); border-radius:10px; overflow:auto; max-height:70vh; }
@@ -90,6 +99,7 @@
   tr:hover td { background:#F7FAFD; }
   td.name { font-weight:600; white-space:normal; min-width:170px; }
   td.appid { color:var(--muted); font-size:10.5px; font-family:ui-monospace,Consolas,monospace; }
+  td.proto { font-weight:600; letter-spacing:.3px; }
 
   .pill { display:inline-block; padding:2px 9px; border-radius:20px; font-size:10.5px; font-weight:600; }
   .pill.warn { background:var(--warn-bg); color:var(--warn); }
@@ -124,11 +134,11 @@
     <div class="controls">
       <input type="search" id="q" placeholder="Search by name or App ID…" aria-label="Search applications">
       <select id="cat"><option value="">All categories</option></select>
-      <select id="proto"><option value="">All protocols</option></select>
+      <div class="proto-group" id="protoGroup" aria-label="Filter by protocol"></div>
       <span class="count" id="count"></span>
     </div>
     <div class="tablewrap"><table id="tbl"><thead></thead><tbody></tbody></table></div>
-    <footer>Flags: credential expiring &le;60 days · no owner listed (excludes Copilot Studio agents, which auto-populate an owner) · restricted with zero assigned users/groups · disabled · no sign-ins in the last 7 days. Blank protocol often means a consumer OAuth consent grant rather than a broken integration.</footer>
+    <footer>Flags: credential expiring within 60 days · no owner listed (excludes Copilot Studio agents, which auto-populate an owner) · restricted with zero assigned users/groups · disabled · no sign-ins in the last 30 days. Blank protocol often means a consumer OAuth consent grant rather than a formally provisioned integration. Click a protocol chip to filter (multiple can be active at once); click "Most used" to sort by sign-ins.</footer>
   </div>
 
 </main>
@@ -138,30 +148,30 @@ let DATA = [];
 const cols = [
   {k:"DisplayName", l:"Application", cls:"name"},
   {k:"Category", l:"Category"},
-  {k:"Protocol", l:"Protocol"},
+  {k:"Protocol", l:"Protocol", cls:"proto", format:v => v ? v.toUpperCase() : v},
   {k:"Enabled", l:"Enabled", pill:v => v==="True" ? ["ok","Yes"] : ["bad","Disabled"]},
   {k:"AccessRestricted", l:"Restricted", pill:v => v==="True" ? ["ok","Yes"] : ["dim","Open"]},
   {k:"Owners", l:"Owners"},
-  {k:"AssignedUsers", l:"Assigned users", num:true},
-  {k:"AssignedGroups", l:"Assigned groups"},
-  {k:"SignIns", l:"Sign-ins (7d)", num:true,
+  {k:"AssignedUsers", l:"Users", num:true},
+  {k:"AssignedGroups", l:"Groups"},
+  {k:"SignIns", l:"Sign-ins (30d)", num:true,
     pill:v => v===""||v==null ? null : (+v === 0 ? ["dim","0"] : ["ok",v])},
-  {k:"UniqueUsers", l:"Unique users (7d)", num:true},
+  {k:"UniqueUsers", l:"Unique users (30d)", num:true},
   {k:"LastSignIn", l:"Last sign-in"},
   {k:"DaysToExpiry", l:"Cred expires (days)", num:true,
     pill:v => v===""||v==null ? null : (+v < 0 ? ["bad", v+" (expired)"] : (+v <= 60 ? ["warn",v] : ["ok",v]))},
   {k:"AppId", l:"App ID", cls:"appid"},
 ];
 
-let state = { q:"", cat:"", proto:"", flag:null, sortK:"DisplayName", sortDir:1 };
+let state = { q:"", cat:"", protos:new Set(), flag:null, sortK:"DisplayName", sortDir:1 };
 
 const cardsDef = [
-  {id:null, label:"Total apps", test:_=>true, cls:""},
-  {id:"cred", label:"Cred expiring \u226460d", test:isCredExpiring, cls:"warn"},
-  {id:"noowner", label:"No owner (excl. Copilot)", test:isNoOwner, cls:"bad"},
-  {id:"nousage", label:"No sign-ins (7d)", test:isNoUsage, cls:"bad"},
-  {id:"unreachable", label:"Restricted, no assignments", test:isUnreachable, cls:"bad"},
-  {id:"disabled", label:"Disabled", test:r=>r.Enabled==="False", cls:"dim"},
+  {id:null, label:"Total apps", sub:"", test:_=>true, cls:""},
+  {id:"cred", label:"Credentials expiring soon", sub:"within 60 days", test:isCredExpiring, cls:"warn"},
+  {id:"noowner", label:"No owner listed", sub:"excludes Copilot Studio", test:isNoOwner, cls:"bad"},
+  {id:"nousage", label:"No sign-ins", sub:"in the last 30 days", test:isNoUsage, cls:"bad"},
+  {id:"unreachable", label:"Restricted, unreachable", sub:"no users or groups assigned", test:isUnreachable, cls:"bad"},
+  {id:"disabled", label:"Disabled", sub:"", test:r=>r.Enabled==="False", cls:"dim"},
 ];
 
 function isCredExpiring(r){ const d = +r.DaysToExpiry; return r.DaysToExpiry!=="" && !isNaN(d) && d<=60; }
@@ -203,14 +213,27 @@ dropzone.addEventListener("drop", e=>{
 });
 
 function init(){
-  const catSel = document.getElementById("cat"), protoSel = document.getElementById("proto");
+  const catSel = document.getElementById("cat");
   catSel.innerHTML = "<option value=''>All categories</option>";
-  protoSel.innerHTML = "<option value=''>All protocols</option>";
   uniq("Category").forEach(v => catSel.add(new Option(v,v)));
-  uniq("Protocol").forEach(v => protoSel.add(new Option(v,v)));
-  document.getElementById("q").addEventListener("input", e=>{state.q=e.target.value.toLowerCase(); render();});
   catSel.addEventListener("change", e=>{state.cat=e.target.value; render();});
-  protoSel.addEventListener("change", e=>{state.proto=e.target.value; render();});
+
+  const protoGroup = document.getElementById("protoGroup");
+  const protoVals = uniq("Protocol");
+  protoGroup.innerHTML = "";
+  protoVals.forEach(v=>{
+    const chip = document.createElement("span");
+    chip.className = "proto-chip";
+    chip.textContent = v.toUpperCase();
+    chip.addEventListener("click", ()=>{
+      if (state.protos.has(v)) state.protos.delete(v); else state.protos.add(v);
+      render();
+    });
+    chip._val = v;
+    protoGroup.appendChild(chip);
+  });
+
+  document.getElementById("q").addEventListener("input", e=>{state.q=e.target.value.toLowerCase(); render();});
   render();
 }
 
@@ -218,7 +241,7 @@ function filtered(){
   return DATA.filter(r=>{
     if (state.q && !((r.DisplayName||"").toLowerCase().includes(state.q) || (r.AppId||"").toLowerCase().includes(state.q))) return false;
     if (state.cat && r.Category !== state.cat) return false;
-    if (state.proto && r.Protocol !== state.proto) return false;
+    if (state.protos.size > 0 && !state.protos.has(r.Protocol)) return false;
     if (state.flag){
       const def = cardsDef.find(c=>c.id===state.flag);
       if (def && !def.test(r)) return false;
@@ -233,6 +256,12 @@ function filtered(){
   });
 }
 
+function sortByMostUsed(){
+  state.sortK = "SignIns";
+  state.sortDir = -1;
+  render();
+}
+
 function render(){
   const cardsEl = document.getElementById("cards"); cardsEl.innerHTML="";
   cardsDef.forEach(c=>{
@@ -240,11 +269,25 @@ function render(){
     const d = document.createElement("div");
     d.className = "card "+c.cls+(state.flag===c.id?" active":"");
     d.setAttribute("role","button"); d.tabIndex=0;
-    d.innerHTML = '<div class="num">'+n+'</div><div class="lbl">'+c.label+'</div>';
+    d.innerHTML = '<div class="num">'+n+'</div><div class="lbl">'+c.label+'</div>'+(c.sub?'<div class="sub">'+c.sub+'</div>':'');
     const toggle = ()=>{ state.flag = (state.flag===c.id? null : c.id); render(); };
     d.addEventListener("click", toggle);
     d.addEventListener("keydown", e=>{ if(e.key==="Enter"||e.key===" "){e.preventDefault();toggle();} });
     cardsEl.appendChild(d);
+  });
+
+  // "Most used" shortcut card - a sort action, not a filter
+  const mu = document.createElement("div");
+  const muActive = state.sortK==="SignIns" && state.sortDir===-1;
+  mu.className = "card info" + (muActive ? " active" : "");
+  mu.setAttribute("role","button"); mu.tabIndex=0;
+  mu.innerHTML = '<div class="num">\u2191</div><div class="lbl">Most used</div><div class="sub">sort by sign-ins</div>';
+  mu.addEventListener("click", sortByMostUsed);
+  mu.addEventListener("keydown", e=>{ if(e.key==="Enter"||e.key===" "){e.preventDefault();sortByMostUsed();} });
+  cardsEl.appendChild(mu);
+
+  document.querySelectorAll(".proto-chip").forEach(chip=>{
+    chip.classList.toggle("on", state.protos.has(chip._val));
   });
 
   const thead = document.querySelector("#tbl thead");
@@ -266,7 +309,8 @@ function render(){
       const p = c.pill(v);
       return "<td>"+(p ? '<span class="pill '+p[0]+'">'+p[1]+"</span>" : "<span style='color:var(--muted)'>–</span>")+"</td>";
     }
-    return "<td class='"+(c.cls||"")+"'>"+(v==null||v===""?"<span style='color:var(--muted)'>–</span>":String(v))+"</td>";
+    const display = c.format ? c.format(v) : v;
+    return "<td class='"+(c.cls||"")+"'>"+(v==null||v===""?"<span style='color:var(--muted)'>–</span>":String(display))+"</td>";
   }).join("")+"</tr>").join("");
   if (!rows.length) tbody.innerHTML = "<tr><td colspan='"+cols.length+"'><div class='empty'>No applications match. Clear a filter to widen the view.</div></td></tr>";
   document.getElementById("count").textContent = rows.length + " of " + DATA.length + " shown";
